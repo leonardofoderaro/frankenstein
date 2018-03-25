@@ -1,5 +1,6 @@
 #!/store/anaconda/anaconda/bin/python3.5
 
+import os
 import re
 import sys
 import fire
@@ -27,6 +28,20 @@ def _XPathRemove(doc, xpath):
     element.clear()
     doc = etree.tostring(parsedDoc, pretty_print=True, method="html")
     return doc.decode("utf-8")
+
+def _loadPipelines(config_file, filename):
+    if 'pipelines' not in config_file:
+       print('no patches found in ' + filename)
+       return
+    
+    result = {}
+
+    for pipeline in config_file['pipelines']:
+        result[pipeline['name']] = pipeline
+
+    return result
+
+    
 
 def serve(config = 'frankie.json'):
     import json
@@ -57,12 +72,12 @@ def serve(config = 'frankie.json'):
         else:
             doc = requests.post(url).text
 
-        #doc = re.sub('\n', '', doc)
-  
         doc = _fix_absolute_links(config_file['target_url'], request.host + '/', doc)
 
-        if 'patches' in config_file:
-            for patch in config_file['patches']:
+        pipelines = _loadPipelines(config_file, config)
+
+        if pipelines is not None:
+            for patch in pipelines['default']['pipeline']:
                 if patch['type'] == 'simple':
                    doc = re.sub(patch['find'], patch['replace'], doc, re.MULTILINE)
 
@@ -74,6 +89,15 @@ def serve(config = 'frankie.json'):
         return doc
 
     proxy.run() 
+
+def new(path):
+    if os.path.isdir(path):
+       print(path + " already exists.")
+       return
+
+    print("creating \"" + path + "\"")
+    os.makedirs(path)
+       
 
 def main():
     app = fire.Fire() 
