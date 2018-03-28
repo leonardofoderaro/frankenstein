@@ -4,8 +4,33 @@ import os
 import re
 import sys
 import fire
+import requests
+import unidecode
 from lxml import etree
+from lxml import html
+import lxml
 
+template = """
+{
+  "frankie_config_version": 0.1,
+  "website": "http://your.website.here/",
+  "pipelines": [
+      {
+        "name": "default",
+        "intercept": "^/$",
+        "edits": [
+           {
+             "name": "HelloWorld",
+             "type": "simple",
+             "find": "World",
+             "replace": "Frankie"
+           }
+        ]
+      }
+  ]
+}
+    
+"""
 
 try:
     from StringIO import StringIO
@@ -25,7 +50,6 @@ def _fix_absolute_links(base_url, frankie_url, doc):
 def _XPathRemove(doc, xpath):
     parsedDoc = _htmlParse(doc)
     element = parsedDoc.find(xpath)
-    print('k')
     if element is None:
        return doc
 
@@ -33,17 +57,59 @@ def _XPathRemove(doc, xpath):
     doc = etree.tostring(parsedDoc, pretty_print=True, method="html")
     return doc.decode("utf-8")
 
-def _XPathReplace(doc, XPathFind, replace):
+def _XPathSetText(doc, XPathFind, text):
     parsedDoc = _htmlParse(doc)
     element = parsedDoc.find(XPathFind)
     if element is not None:
         element.clear()
-        #element.replace(element.getchildren()[0], etree.fromstring(replace))
+
+        fragments = html.fragments_fromstring(text)
+        last = None
+
+        for frag in fragments:
+          if isinstance(frag, lxml.etree._Element):
+            element.append(frag)
+            last = frag
+          else:
+            if last:
+              last.tail = frag
+            else:
+              element.text = frag
+
+
+        doc = etree.tostring(parsedDoc, pretty_print=True, method="html")
+        return doc.decode("utf-8")
+    else:
+        return doc
+     
+
+def _XPathReplace(doc, XPathFind, replace): 
+    parsedDoc = _htmlParse(doc)
+    element = parsedDoc.find(XPathFind)
+    if element is not None:
+        element.clear()
         element.append(etree.fromstring(replace))
         doc = etree.tostring(parsedDoc, pretty_print=True, method="html")
         return doc.decode("utf-8")
     else:
         return doc
+
+def _XPathCopyFromRemote(doc, origin, XPathSource, XPathDest, attribute = None):
+    parsedDoc = _htmlParse(doc)
+    sourceDoc = _htmlParse(requests.get(origin).text)
+    element = sourceDoc.find(XPathSource)
+    elementDest = parsedDoc.find(XPathDest)
+    elementDest.clear()
+    if attribute is not None:
+       if attribute == 'text()':
+          elementDest.text = element.text
+       else:
+          elementDest.set(attribute, element.get(atttribute))
+    else:
+        elementDest.append(element)
+    doc = etree.tostring(parsedDoc, pretty_print=True, method="html")
+    return doc.decode("utf-8")
+     
 
 def _injectJS(doc, url):
     parsedDoc = _htmlParse(doc)
@@ -54,7 +120,7 @@ def _injectJS(doc, url):
 
 def _loadPipelines(config_file, filename):
     if 'pipelines' not in config_file:
-       print('no patches found in ' + filename)
+       print('no pipelines found in ' + filename)
        return
     
     result = {}
@@ -68,12 +134,13 @@ def _loadPipelines(config_file, filename):
 
     
 
-def serve(config):
+def run(config = 'config.js'):
     import json
     import requests
     from lxml import etree
     from flask import Flask
     from flask import request
+    from flask import Response
 
     proxy = Flask(__name__)
 
@@ -88,23 +155,36 @@ def serve(config):
     @proxy.route('/', defaults={'path': ''})
     @proxy.route('/<path:path>', methods=['GET', 'POST'])
     def _handle(path):
-        params = re.sub('http.?://' + request.host + '/', '', request.url)
+  
+        path = '/' + path
 
-        url = config_file['target_url'] + params
+        params = re.sub('http.?://' + request.host + '/', '/', request.url)
+
+        if params is not None and params != [] and params[0] == '/' and path != '/':
+            parts = config_file['website'].split('/') 
+            url = parts[0] + '//' + parts[2]  + params
+        else: 
+            url = config_file['website'] + params
+
+        print('new url ' + url)
 
         # TODO propagate headers 
-        #for header in headers:
-        #    print(header)
-        # 
-        # 'accept-encoding': 'gzip, deflate, br',
-        headers = {'accept-language': 'en-US,eq=0.9,it;q=0.8', 'upgrade-insecure-requests': '1', 'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/65.0.3325.181 Safari/537.36', 'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8', 'cache-control': 'no-cache'}
+        headers = {}
 
+        for header in request.headers:
+            if header[0] not in ['Host', 'Referer', 'Cookie']:
+               headers[header[0]] = header[1]
+
+ 
         if request.method == 'GET':
-            doc = requests.get(url, headers = headers).text
+            rsp = requests.get(url, headers = headers)
         else:
-            doc = requests.post(url, headers = headers).text
+            rsp = requests.post(url, headers = headers)
 
-        doc = _fix_absolute_links(config_file['target_url'], request.host + '/', doc)
+
+        doc = rsp.text
+
+        doc = _fix_absolute_links(config_file['website'], request.host + '/', doc)
 
         pipelines = _loadPipelines(config_file, config)
 
@@ -124,24 +204,55 @@ def serve(config):
                 should_filter = should_filter or (re.search(intercept, re.sub('http.?://' + request.host, '', request.url)) is not None)
 
         if should_filter:
-            for patch in pipeline['pipeline']:
+            for patch in pipeline['edits']:
+                print('applying ' + patch['name'])
                 if patch['type'] == 'simple':
                     doc = re.sub(patch['find'], patch['replace'], doc, re.MULTILINE)
 
-                if patch['type'] == 'XPathRemove':
+                elif patch['type'] == 'XPathRemove':
                     doc = _XPathRemove(doc, patch['xpath'])
 
-                if patch['type'] == 'XPathReplace':
+                elif patch['type'] == 'XPathReplace':
                     doc = _XPathReplace(doc, patch['find'], patch['replace'])
+ 
+                elif patch['type'] == 'XPathSetText':
+                    doc = _XPathSetText(doc, patch['find'], text = patch['text'])
 
-                if patch['type'] == 'InjectJS':
+                elif patch['type'] == 'InjectJS':
                     doc = _injectJS(doc, patch['url'])
 
-                if patch['type'] == 'ActivateVueJS':
+                elif patch['type'] == 'ActivateVueJS':
                     vueSrc = "<script>var app = new Vue({el: '#" + patch['el'] + "'});</script>"
                     doc = re.sub('</body>', vueSrc + "</body>", doc)
 
-        return doc
+                elif patch['type'] == 'XPathCopyFromRemote':
+                    doc = _XPathCopyFromRemote(doc, patch['origin'], patch['XPathSource'], patch['XPathDest'], patch['attribute'])
+
+                elif patch['type'] == 'StaticSnippetInject':
+                    name = unidecode.unidecode(patch['name'])
+                    name = re.sub(' ', '-', name)
+                    path = os.path.abspath('snippets') + '/' + name
+
+                    if not os.path.exists(path):
+                        os.makedirs(path)
+
+                    subdirs = ['html', 'css', 'js']
+                
+                    for subdir in subdirs: 
+                        if not os.path.exists(path + '/' + subdir):
+                            os.makedirs(path + '/' + subdir)
+
+                else:
+                    print('Edit "' + patch['type'] + ' not defined.')
+                    sys.exit(-1)
+ 
+        frankieResponse = Response(doc)
+        
+        for header in rsp.headers:
+           if header != 'Transfer-Encoding' and header != 'Content-Length' and header != 'Content-Encoding' and header != 'P3P':
+               frankieResponse.headers[header] = rsp.headers.get(header) #headers = response.headers
+
+        return frankieResponse
 
     proxy.run() 
 
@@ -152,6 +263,11 @@ def new(path):
 
     print("creating \"" + path + "\"")
     os.makedirs(path)
+
+    path = os.path.abspath(path)
+
+    with open(path + '/config.js', 'w') as config:
+        config.write(template)
        
 
 def main():
