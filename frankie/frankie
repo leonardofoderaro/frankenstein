@@ -25,7 +25,30 @@ def _fix_absolute_links(base_url, frankie_url, doc):
 def _XPathRemove(doc, xpath):
     parsedDoc = _htmlParse(doc)
     element = parsedDoc.find(xpath)
+    print('k')
+    if element is None:
+       return doc
+
     element.clear()
+    doc = etree.tostring(parsedDoc, pretty_print=True, method="html")
+    return doc.decode("utf-8")
+
+def _XPathReplace(doc, XPathFind, replace):
+    parsedDoc = _htmlParse(doc)
+    element = parsedDoc.find(XPathFind)
+    if element is not None:
+        element.clear()
+        #element.replace(element.getchildren()[0], etree.fromstring(replace))
+        element.append(etree.fromstring(replace))
+        doc = etree.tostring(parsedDoc, pretty_print=True, method="html")
+        return doc.decode("utf-8")
+    else:
+        return doc
+
+def _injectJS(doc, url):
+    parsedDoc = _htmlParse(doc)
+    element = parsedDoc.find('//head')
+    element.insert(0, etree.fromstring('<script src="' + url + '"></script>'))
     doc = etree.tostring(parsedDoc, pretty_print=True, method="html")
     return doc.decode("utf-8")
 
@@ -43,7 +66,9 @@ def _loadPipelines(config_file, filename):
 
     
 
-def serve(config = 'frankie.json'):
+    
+
+def serve(config):
     import json
     import requests
     from lxml import etree
@@ -57,34 +82,64 @@ def serve(config = 'frankie.json'):
             config_file = json.loads(f.read())
     except FileNotFoundError as e:
         print('Unable to find \'' + config + '\'.')
-        print('Please specify config file using --config, or create a \'frankie.json\' file.')
+        print('Please specify config file using --config') 
         sys.exit(-1)
 
     @proxy.route('/', defaults={'path': ''})
     @proxy.route('/<path:path>', methods=['GET', 'POST'])
     def _handle(path):
         params = re.sub('http.?://' + request.host + '/', '', request.url)
-        
+
         url = config_file['target_url'] + params
 
+        # TODO propagate headers 
+        #for header in headers:
+        #    print(header)
+        # 
+        # 'accept-encoding': 'gzip, deflate, br',
+        headers = {'accept-language': 'en-US,eq=0.9,it;q=0.8', 'upgrade-insecure-requests': '1', 'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/65.0.3325.181 Safari/537.36', 'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8', 'cache-control': 'no-cache'}
+
         if request.method == 'GET':
-            doc = requests.get(url).text
+            doc = requests.get(url, headers = headers).text
         else:
-            doc = requests.post(url).text
+            doc = requests.post(url, headers = headers).text
 
         doc = _fix_absolute_links(config_file['target_url'], request.host + '/', doc)
 
         pipelines = _loadPipelines(config_file, config)
 
-        if pipelines is not None:
-            for patch in pipelines['default']['pipeline']:
+        if pipelines is None:
+           return doc
+
+        pipeline = pipelines['default']
+
+        intercepts = pipeline['intercept'].split(',')
+
+        should_filter = None
+
+        for intercept in intercepts:
+            if should_filter is None:
+                should_filter = re.search(intercept, re.sub('http.?://' + request.host, '', request.url)) is not None
+            else:
+                should_filter = should_filter or (re.search(intercept, re.sub('http.?://' + request.host, '', request.url)) is not None)
+
+        if should_filter:
+            for patch in pipeline['pipeline']:
                 if patch['type'] == 'simple':
-                   doc = re.sub(patch['find'], patch['replace'], doc, re.MULTILINE)
+                    doc = re.sub(patch['find'], patch['replace'], doc, re.MULTILINE)
 
                 if patch['type'] == 'XPathRemove':
-                   doc = _XPathRemove(doc, patch['xpath'])
-  
+                    doc = _XPathRemove(doc, patch['xpath'])
 
+                if patch['type'] == 'XPathReplace':
+                    doc = _XPathReplace(doc, patch['find'], patch['replace'])
+
+                if patch['type'] == 'InjectJS':
+                    doc = _injectJS(doc, patch['url'])
+
+                if patch['type'] == 'ActivateVueJS':
+                    vueSrc = "<script>var app = new Vue({el: '#" + patch['el'] + "'});</script>"
+                    doc = re.sub('</body>', vueSrc + "</body>", doc)
 
         return doc
 
