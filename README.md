@@ -19,6 +19,11 @@ Enjoy your frankensteinaized website!
 Some of the filters you can apply:
 
 ### Find and Replace some content, without parsing Html
+```
+  {
+     "test": 1
+  }
+```
 > {  
 > ` ` ` ` ` ` "name": "first", ` ` ` ` ` ` // the name of your choice for this filter  
 > ` ` ` ` ` ` "type": "simple", ` ` ` ` ` ` // the filter type  
