@@ -18,8 +18,12 @@ Enjoy your frankensteinaized website!
 
 Some of the filters you can apply:
 
-### simple
-#### find:
-#### replace:
+### Find and Replace some content, without parsing Html
+>  {
+>    "name": "first",        // the name of your choice for this filter
+>    "type": "simple",       // the type of filter
+>    "find": "World",        // the regex you want to find
+>    "replace": "Frankie"    // the substitution to apply
+>  }
 
 To discover all the filters you can apply (or even how to define your own!) please take a look at the documentation.
