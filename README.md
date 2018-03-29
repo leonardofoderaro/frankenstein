@@ -22,8 +22,8 @@ Some of the filters you can apply:
 find and replace some content, without parsing Html
 ```
 {  
-    "name": "first",       // the name of your choice for this filter  
-    "type": "simple",      // the filter type  
+    "name": "first",       // arbitrary filter name 
+    "type": "simple",      // filter type  
     "find": "World",       // the word (or regex) you want to replace  
     "replace": "Frankie"   // the substitution to apply 
 }  
