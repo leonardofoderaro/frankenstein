@@ -20,7 +20,7 @@ Some of the filters you can apply:
 
 ### Find and Replace some content, without parsing Html
 {  
-        "name": "first",        // the name of your choice for this filter  
+` ` ` ` ` ` "name": "first",        // the name of your choice for this filter  
         "type": "simple",       // the filter type  
         "find": "World",        // the word (or regex) you want to replace  
         "replace": "Frankie"    // the substitution to apply 
