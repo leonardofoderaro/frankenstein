@@ -20,15 +20,12 @@ Some of the filters you can apply:
 
 ### Find and Replace some content, without parsing Html
 ```
-  {
-     "test": 1
-  }
-```
-> {  
-> ` ` ` ` ` ` "name": "first", ` ` ` ` ` ` // the name of your choice for this filter  
-> ` ` ` ` ` ` "type": "simple", ` ` ` ` ` ` // the filter type  
-> ` ` ` ` ` ` "find": "World",        // the word (or regex) you want to replace  
-> ` ` ` ` ` ` "replace": "Frankie"    // the substitution to apply 
-> }  
+{  
+    "name": "first",       // the name of your choice for this filter  
+    "type": "simple",      // the filter type  
+    "find": "World",       // the word (or regex) you want to replace  
+    "replace": "Frankie"   // the substitution to apply 
+}  
 
+```
 To discover all the filters you can apply (or even how to define your own!) please take a look at the documentation.
