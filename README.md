@@ -18,7 +18,8 @@ Enjoy your frankensteinaized website!
 
 Some of the filters you can apply:
 
-### Simple: find and replace some content, without parsing Html
+### Simple  
+find and replace some content, without parsing Html
 ```
 {  
     "name": "first",       // the name of your choice for this filter  
@@ -28,7 +29,8 @@ Some of the filters you can apply:
 }  
 ```  
 
-### XPathRemove: find an element using XPath, then clear it
+### XPathRemove  
+find an element using XPath, then clear it
 ```  
 {
     "name": "drop_login_box",  // the name for this filter
@@ -37,7 +39,8 @@ Some of the filters you can apply:
 }
 ```  
 
-### InjectRemoteJS: inject a <script src="..."></script> node inside the <head></head> section
+### InjectRemoteJS  
+inject a <script src="..."></script> node inside the head section
 ```
 {
     "name": "inject_vue_js",    // filter name
@@ -46,7 +49,8 @@ Some of the filters you can apply:
 }
 ```
 
-### XPathSetText: finds an element using an XPath expression, then set its text property
+### XPathSetText  
+finds an element using an XPath expression, then set its text property
 ```
 {
     "name": "set_footer",    // filter name
@@ -57,7 +61,8 @@ Some of the filters you can apply:
 ```
 
 
-### XPathCopyFromRemote: selects an element from a remote document and inject it at the specified location
+### XPathCopyFromRemote  
+selects an element from a remote document and inject it at the specified location
 ```
 {
     "name": "add_tagline",    // filter name
@@ -69,4 +74,3 @@ Some of the filters you can apply:
 ```
 
 
-<> To discover more about filters (or even how to define your own!) please take a look at the documentation.
