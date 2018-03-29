@@ -19,7 +19,7 @@ Enjoy your frankensteinaized website!
 Some of the filters you can apply:
 
 ### Simple  
-find and replace some content, without parsing Html
+finds and replace some content, without parsing Html
 ```
 {  
     "name": "first",       // arbitrary filter name 
@@ -30,7 +30,7 @@ find and replace some content, without parsing Html
 ```  
 
 ### XPathRemove  
-find an element using XPath, then clear it
+finds an element using XPath, then clear it
 ```  
 {
     "name": "drop_login_box",  // the name for this filter
@@ -40,7 +40,7 @@ find an element using XPath, then clear it
 ```  
 
 ### InjectRemoteJS  
-inject a <script src="..."></script> node inside the head section
+injects a <script src="..."></script> node inside the head section
 ```
 {
     "name": "inject_vue_js",    // filter name
@@ -70,7 +70,7 @@ selects an element from a remote document and inject it at the specified locatio
     "origin": "https://github.com/leonardofoderaro/frankie",   // the remote document with the element to be injected
     "XPathSource": "//div[@id=\"readme\"]/article/p[1]",       // the location of the element to be injected
     "XPathDest": "//h2[@class=\"project-tagline\"]"            // where it must be inserted in the local document
-},
+}
 ```
 
 
