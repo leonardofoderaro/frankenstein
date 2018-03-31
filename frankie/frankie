@@ -37,9 +37,12 @@ try:
 except ImportError:
     from io import StringIO
 
-def _htmlParse(html):
-    parser = etree.HTMLParser(encoding='utf-8')
-    tree   = etree.parse(StringIO(html), parser)
+def _htmlParse(html, parseAsHtml=True):
+    if parseAsHtml:
+        parser = etree.HTMLParser(encoding='utf-8')
+        tree   = etree.parse(StringIO(html), parser)
+    else:
+        tree   = etree.parse(StringIO(html))
     return tree
 
 def _fix_absolute_links(base_url, frankie_url, doc):
@@ -94,24 +97,43 @@ def _XPathReplace(doc, XPathFind, replace):
     else:
         return doc
 
-def _XPathCopyFromRemote(doc, origin, XPathSource, XPathDest, attribute = None):
+def _XPathCopyFromRemote(doc, origin, XPathSource, XPathDest):
     parsedDoc = _htmlParse(doc)
     sourceDoc = _htmlParse(requests.get(origin).text)
     element = sourceDoc.find(XPathSource)
     elementDest = parsedDoc.find(XPathDest)
     elementDest.clear()
-    if attribute is not None:
-       if attribute == 'text()':
-          elementDest.text = element.text
-       else:
-          elementDest.set(attribute, element.get(atttribute))
+    elementDest.append(element)
+    doc = etree.tostring(parsedDoc, pretty_print=True, method="html")
+    return doc.decode("utf-8")
+
+def _XPathCopyFromLocal(doc, origin, XPathSource, XPathDest):
+    path = os.getcwd() + '/fragments/' + origin
+    sourceDoc = _htmlParse(open(path).read(), parseAsHtml=False)
+    parsedDoc = _htmlParse(doc)
+    element = sourceDoc.xpath(XPathSource) #[0].getchildren()
+    elementDest = parsedDoc.xpath(XPathDest)
+
+    if elementDest is not None and elementDest != []:
+       elementDest = elementDest[0]
     else:
-        elementDest.append(element)
+       return doc
+   
+
+
+    if element != None and element != []:
+        i = 1
+        for e in element:
+            elementDest.getparent().insert(elementDest.getparent().index(elementDest), e)
+            i = i + 1
+
+    #elementDest.getparent().remove(elementDest) 
+
     doc = etree.tostring(parsedDoc, pretty_print=True, method="html")
     return doc.decode("utf-8")
      
 
-def _injectJS(doc, url):
+def _injectRemoteJS(doc, url):
     parsedDoc = _htmlParse(doc)
     element = parsedDoc.find('//head')
     element.insert(0, etree.fromstring('<script src="' + url + '"></script>'))
@@ -218,15 +240,15 @@ def run(config = 'config.js'):
                 elif patch['type'] == 'XPathSetText':
                     doc = _XPathSetText(doc, patch['find'], text = patch['text'])
 
-                elif patch['type'] == 'InjectJS':
-                    doc = _injectJS(doc, patch['url'])
+                elif patch['type'] == 'InjectRemoteJS':
+                    doc = _injectRemoteJS(doc, patch['url'])
 
                 elif patch['type'] == 'ActivateVueJS':
                     vueSrc = "<script>var app = new Vue({el: '#" + patch['el'] + "'});</script>"
                     doc = re.sub('</body>', vueSrc + "</body>", doc)
 
                 elif patch['type'] == 'XPathCopyFromRemote':
-                    doc = _XPathCopyFromRemote(doc, patch['origin'], patch['XPathSource'], patch['XPathDest'], patch['attribute'])
+                    doc = _XPathCopyFromRemote(doc, patch['origin'], patch['XPathSource'], patch['XPathDest']) 
 
                 elif patch['type'] == 'StaticSnippetInject':
                     name = unidecode.unidecode(patch['name'])
@@ -241,6 +263,9 @@ def run(config = 'config.js'):
                     for subdir in subdirs: 
                         if not os.path.exists(path + '/' + subdir):
                             os.makedirs(path + '/' + subdir)
+                
+                elif patch['type'] == 'XPathCopyFromLocal':
+                     doc = _XPathCopyFromLocal(doc, patch['origin'], patch['XPathSource'], patch['XPathDest'])
 
                 else:
                     print('Edit "' + patch['type'] + ' not defined.')
