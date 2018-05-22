@@ -5,10 +5,12 @@ import re
 import sys
 import fire
 import requests
-import unidecode
-from lxml import etree
-from lxml import html
-import lxml
+import pandas as pd
+import pkg_resources
+from pathlib import Path
+
+from frankie import transformations
+
 
 template = """
 {
@@ -32,113 +34,29 @@ template = """
     
 """
 
-try:
-    from StringIO import StringIO
-except ImportError:
-    from io import StringIO
 
-def _htmlParse(html, parseAsHtml=True):
-    if parseAsHtml:
-        parser = etree.HTMLParser(encoding='utf-8')
-        tree   = etree.parse(StringIO(html), parser)
-    else:
-        tree   = etree.parse(StringIO(html))
-    return tree
+def _load_module(source_file):
+    import importlib
+    import importlib.machinery
+    import importlib.util
+
+    loader = importlib.machinery.SourceFileLoader("x", source_file)
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    mod = importlib.util.module_from_spec(spec)
+    loader.exec_module(mod)
+    try:
+        transform_function = getattr(mod, 'transform')
+    except AttributeError as err:
+        print('transform function not found in ' + source_file + ', skipping.')
+        return None
+
+    return transform_function
 
 def _fix_absolute_links(base_url, frankie_url, doc):
     doc = re.sub(base_url, '//' + frankie_url, doc)
 
     return doc
 
-def _XPathRemove(doc, xpath):
-    parsedDoc = _htmlParse(doc)
-    element = parsedDoc.find(xpath)
-    if element is None:
-       return doc
-
-    element.clear()
-    doc = etree.tostring(parsedDoc, pretty_print=True, method="html")
-    return doc.decode("utf-8")
-
-def _XPathSetText(doc, XPathFind, text):
-    parsedDoc = _htmlParse(doc)
-    element = parsedDoc.find(XPathFind)
-    if element is not None:
-        element.clear()
-
-        fragments = html.fragments_fromstring(text)
-        last = None
-
-        for frag in fragments:
-          if isinstance(frag, lxml.etree._Element):
-            element.append(frag)
-            last = frag
-          else:
-            if last:
-              last.tail = frag
-            else:
-              element.text = frag
-
-
-        doc = etree.tostring(parsedDoc, pretty_print=True, method="html")
-        return doc.decode("utf-8")
-    else:
-        return doc
-     
-
-def _XPathReplace(doc, XPathFind, replace): 
-    parsedDoc = _htmlParse(doc)
-    element = parsedDoc.find(XPathFind)
-    if element is not None:
-        element.clear()
-        element.append(etree.fromstring(replace))
-        doc = etree.tostring(parsedDoc, pretty_print=True, method="html")
-        return doc.decode("utf-8")
-    else:
-        return doc
-
-def _XPathCopyFromRemote(doc, origin, XPathSource, XPathDest):
-    parsedDoc = _htmlParse(doc)
-    sourceDoc = _htmlParse(requests.get(origin).text)
-    element = sourceDoc.find(XPathSource)
-    elementDest = parsedDoc.find(XPathDest)
-    elementDest.clear()
-    elementDest.append(element)
-    doc = etree.tostring(parsedDoc, pretty_print=True, method="html")
-    return doc.decode("utf-8")
-
-def _XPathCopyFromLocal(doc, origin, XPathSource, XPathDest):
-    path = os.getcwd() + '/fragments/' + origin
-    sourceDoc = _htmlParse(open(path).read(), parseAsHtml=False)
-    parsedDoc = _htmlParse(doc)
-    element = sourceDoc.xpath(XPathSource) #[0].getchildren()
-    elementDest = parsedDoc.xpath(XPathDest)
-
-    if elementDest is not None and elementDest != []:
-       elementDest = elementDest[0]
-    else:
-       return doc
-   
-
-
-    if element != None and element != []:
-        i = 1
-        for e in element:
-            elementDest.getparent().insert(elementDest.getparent().index(elementDest), e)
-            i = i + 1
-
-    #elementDest.getparent().remove(elementDest) 
-
-    doc = etree.tostring(parsedDoc, pretty_print=True, method="html")
-    return doc.decode("utf-8")
-     
-
-def _injectRemoteJS(doc, url):
-    parsedDoc = _htmlParse(doc)
-    element = parsedDoc.find('//head')
-    element.insert(0, etree.fromstring('<script src="' + url + '"></script>'))
-    doc = etree.tostring(parsedDoc, pretty_print=True, method="html")
-    return doc.decode("utf-8")
 
 def _loadPipelines(config_file, filename):
     if 'pipelines' not in config_file:
@@ -152,19 +70,24 @@ def _loadPipelines(config_file, filename):
 
     return result
 
-    
-
-    
-
 def run(config = 'config.js'):
     import json
     import requests
-    from lxml import etree
-    from flask import Flask
-    from flask import request
-    from flask import Response
-
+    from flask import Flask, request, Response
+    
     proxy = Flask(__name__)
+
+    path = os.path.dirname(os.path.realpath(__file__) + '/lib')
+
+    path = re.sub('/scripts/frankie', '', path)
+
+    libpath = pkg_resources.resource_filename('frankie', 'lib/')
+
+    for dirName, subdirList, fileList in os.walk(libpath):
+        for f in fileList:
+            if f.endswith('.py') and '__init__' not in f:
+               transform_function = _load_module(dirName + '/' + f)
+
 
     try:
         with open(config) as f:
@@ -187,8 +110,6 @@ def run(config = 'config.js'):
             url = parts[0] + '//' + parts[2]  + params
         else: 
             url = config_file['website'] + params
-
-        print('new url ' + url)
 
         # TODO propagate headers 
         headers = {}
@@ -225,47 +146,15 @@ def run(config = 'config.js'):
             else:
                 should_filter = should_filter or (re.search(intercept, re.sub('http.?://' + request.host, '', request.url)) is not None)
 
+        frankie_context = {}
+
         if should_filter:
             for patch in pipeline['edits']:
-                print('applying ' + patch['name'])
-                if patch['type'] == 'simple':
-                    doc = re.sub(patch['find'], patch['replace'], doc, re.MULTILINE)
+                t = transformations.get(patch['type'], None)
 
-                elif patch['type'] == 'XPathRemove':
-                    doc = _XPathRemove(doc, patch['xpath'])
-
-                elif patch['type'] == 'XPathReplace':
-                    doc = _XPathReplace(doc, patch['find'], patch['replace'])
- 
-                elif patch['type'] == 'XPathSetText':
-                    doc = _XPathSetText(doc, patch['find'], text = patch['text'])
-
-                elif patch['type'] == 'InjectRemoteJS':
-                    doc = _injectRemoteJS(doc, patch['url'])
-
-                elif patch['type'] == 'ActivateVueJS':
-                    vueSrc = "<script>var app = new Vue({el: '#" + patch['el'] + "'});</script>"
-                    doc = re.sub('</body>', vueSrc + "</body>", doc)
-
-                elif patch['type'] == 'XPathCopyFromRemote':
-                    doc = _XPathCopyFromRemote(doc, patch['origin'], patch['XPathSource'], patch['XPathDest']) 
-
-                elif patch['type'] == 'StaticSnippetInject':
-                    name = unidecode.unidecode(patch['name'])
-                    name = re.sub(' ', '-', name)
-                    path = os.path.abspath('snippets') + '/' + name
-
-                    if not os.path.exists(path):
-                        os.makedirs(path)
-
-                    subdirs = ['html', 'css', 'js']
-                
-                    for subdir in subdirs: 
-                        if not os.path.exists(path + '/' + subdir):
-                            os.makedirs(path + '/' + subdir)
-                
-                elif patch['type'] == 'XPathCopyFromLocal':
-                     doc = _XPathCopyFromLocal(doc, patch['origin'], patch['XPathSource'], patch['XPathDest'])
+                if t != None:
+                   patch['ctx'] = frankie_context
+                   doc = t(doc = doc, **patch)
 
                 else:
                     print('Edit "' + patch['type'] + ' not defined.')
