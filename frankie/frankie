@@ -11,7 +11,6 @@ from pathlib import Path
 
 from frankie import transformations
 
-
 template = """
 {
   "frankie_config_version": 0.1,
@@ -44,13 +43,6 @@ def _load_module(source_file):
     spec = importlib.util.spec_from_loader(loader.name, loader)
     mod = importlib.util.module_from_spec(spec)
     loader.exec_module(mod)
-    try:
-        transform_function = getattr(mod, 'transform')
-    except AttributeError as err:
-        print('transform function not found in ' + source_file + ', skipping.')
-        return None
-
-    return transform_function
 
 def _fix_absolute_links(base_url, frankie_url, doc):
     doc = re.sub(base_url, '//' + frankie_url, doc)
@@ -86,7 +78,7 @@ def run(config = 'config.js'):
     for dirName, subdirList, fileList in os.walk(libpath):
         for f in fileList:
             if f.endswith('.py') and '__init__' not in f:
-               transform_function = _load_module(dirName + '/' + f)
+               _load_module(dirName + '/' + f)
 
 
     try:
