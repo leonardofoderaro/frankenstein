@@ -11,7 +11,6 @@ transformations = {}
 
 class FrankieFunction(object):
     def __init__(self, function, name):
-        print('initializing ' + name)
         transformations[name] = function 
         self.name = name
         self.function = function
